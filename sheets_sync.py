@@ -29,10 +29,13 @@ async def sync_attendance_to_sheets(
 
     try:
         image_b64 = ""
-        p = Path(photo_path)
-        if p.exists():
-            with open(p, "rb") as f:
-                image_b64 = base64.b64encode(f.read()).decode("utf-8")
+        filename = "-"
+        if photo_path:
+            p = Path(photo_path)
+            if p.is_file():
+                filename = p.name
+                with open(p, "rb") as f:
+                    image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
         payload = {
             "date": date_str,
@@ -43,7 +46,7 @@ async def sync_attendance_to_sheets(
             "type": att_type,
             "office_name": office_name,
             "distance": distance,
-            "filename": p.name if p.exists() else f"selfie_{date_str}_{time_str.replace(':', '')}.jpg",
+            "filename": filename if filename != "-" else f"selfie_{date_str}_{time_str.replace(':', '')}.jpg",
             "image_base64": image_b64
         }
 
