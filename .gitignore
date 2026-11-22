@@ -1,0 +1,51 @@
+# ==========================================================
+# KEAMANAN & SENSITIVE DATA (JANGAN SAMPAI TER-PUSH)
+# ==========================================================
+# File konfigurasi yang berisi Bot Token & URL Webhook
+.env
+*.env
+!.env.example
+
+# Database SQLite lokal (berisi data pengguna, NISN, no ID)
+attendance.db
+attendance.db-journal
+attendance.db-wal
+attendance.db-shm
+*.db
+*.sqlite3
+
+# Foto Selfie, Surat Dokter, Surat Izin
+photos/*
+!photos/.gitkeep
+
+# Laporan CSV / Excel yang di-generate
+reports/*
+!reports/.gitkeep
+
+# ==========================================================
+# RUNTIME & CACHE
+# ==========================================================
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# OS / Editor Files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Log Files
+*.log
+nohup.out

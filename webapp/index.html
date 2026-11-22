@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Absensi Kamera Langsung</title>
+    <!-- Telegram WebApp JS SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: var(--tg-theme-bg-color, #0f172a);
+            --text-color: var(--tg-theme-text-color, #f8fafc);
+            --card-bg: var(--tg-theme-secondary-bg-color, #1e293b);
+            --btn-color: var(--tg-theme-button-color, #2563eb);
+            --btn-text: var(--tg-theme-button-text-color, #ffffff);
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 16px;
+            overflow-x: hidden;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 12px;
+            width: 100%;
+        }
+
+        .header h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .user-pill {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin-top: 4px;
+            color: #94a3b8;
+        }
+
+        /* Container Kamera */
+        .camera-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 360px;
+            aspect-ratio: 3 / 4;
+            background: #000;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        video#camera {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror selfie */
+        }
+
+        /* Face Guide Overlay */
+        .face-guide {
+            position: absolute;
+            width: 65%;
+            height: 60%;
+            border: 2px dashed rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25);
+            transition: border-color 0.3s;
+        }
+
+        .camera-badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.85); }
+        }
+
+        /* Info Lokasi */
+        .status-box {
+            width: 100%;
+            max-width: 360px;
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 12px 14px;
+            margin-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.85rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .status-label {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+
+        .status-value {
+            font-weight: 600;
+        }
+
+        .status-verified {
+            color: var(--accent-green);
+        }
+
+        .status-rejected {
+            color: var(--accent-red);
+        }
+
+        /* Tombol Aksi */
+        .controls {
+            width: 100%;
+            max-width: 360px;
+            margin-top: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        button.btn-capture {
+            width: 100%;
+            padding: 14px;
+            border-radius: 16px;
+            border: none;
+            background: var(--btn-color);
+            color: var(--btn-text);
+            font-size: 1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+            transition: all 0.2s ease;
+        }
+
+        button.btn-capture:disabled {
+            background: #475569;
+            color: #94a3b8;
+            box-shadow: none;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        button.btn-capture:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        .flash-effect {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #fff;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 999;
+            transition: opacity 0.15s ease-out;
+        }
+
+        /* Overlay Sukses */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .modal-card {
+            background: var(--card-bg);
+            border-radius: 24px;
+            padding: 28px 20px;
+            width: 100%;
+            max-width: 320px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-icon {
+            font-size: 3rem;
+            margin-bottom: 12px;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .modal-desc {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+
+        canvas#hiddenCanvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1 id="pageTitle">📷 Absensi Kamera Langsung</h1>
+        <div class="user-pill" id="userInfo">Memuat identitas...</div>
+    </div>
+
+    <!-- Tampilan Kamera Live -->
+    <div class="camera-wrapper">
+        <video id="camera" autoplay playsinline muted></video>
+        <div class="face-guide" id="faceGuide"></div>
+        <div class="camera-badge">
+            <span class="dot"></span>
+            <span>KAMERA LIVE</span>
+        </div>
+    </div>
+
+    <!-- Status GPS & Kantor -->
+    <div class="status-box">
+        <div class="status-row" id="deadlineToHide">
+            <span class="status-label">⏰ Batas Maksimal Masuk:</span>
+            <span class="status-value" id="deadlineStatus" style="color: var(--accent-amber);">-</span>
+        </div>
+        <div class="status-row">
+            <span class="status-label">📍 Lokasi GPS:</span>
+            <span class="status-value" id="gpsStatus">⏳ Mendeteksi sinyal...</span>
+        </div>
+        <div class="status-row">
+            <span class="status-label">🏢 Kantor Terdekat:</span>
+            <span class="status-value" id="officeStatus">-</span>
+        </div>
+    </div>
+
+    <!-- Tombol Aksi -->
+    <div class="controls">
+        <button id="btnCapture" class="btn-capture" disabled>
+            <span>📸 AMBIL FOTO & ABSEN</span>
+        </button>
+    </div>
+
+    <div id="flash" class="flash-effect"></div>
+    <canvas id="hiddenCanvas"></canvas>
+
+    <!-- Modal Status -->
+    <div id="modalOverlay" class="modal-overlay">
+        <div class="modal-card">
+            <div id="modalIcon" class="modal-icon">⏳</div>
+            <div id="modalTitle" class="modal-title">Memproses...</div>
+            <div id="modalDesc" class="modal-desc">Mohon tunggu sebentar</div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram?.WebApp;
+        if (tg) {
+            tg.ready();
+            tg.expand();
+        }
+
+        // Ambil query parameter (type: checkin atau checkout)
+        const urlParams = new URLSearchParams(window.location.search);
+        const attendanceType = urlParams.get('type') || 'checkin';
+        const isCheckIn = attendanceType === 'checkin';
+
+        document.getElementById('pageTitle').innerText = isCheckIn ? '🟢 Absen Masuk (Live Camera)' : '🔴 Absen Pulang (Live Camera)';
+
+        // Tampilkan info batas jam masuk
+        const currentDay = new Date().getDate();
+        const deadlineText = (currentDay >= 1 && currentDay <= 12) ? '08:00 WIB (Tgl 1-12)' : '09:00 WIB (Tgl 13-Akhir)';
+        const deadlineRow = document.getElementById('deadlineToHide');
+        if (isCheckIn) {
+            document.getElementById('deadlineStatus').innerText = deadlineText;
+        } else {
+            deadlineRow.style.display = 'none';
+        }
+
+        // Identitas User dari Telegram
+        const user = tg?.initDataUnsafe?.user;
+        const userInfoEl = document.getElementById('userInfo');
+        if (user) {
+            userInfoEl.innerText = `👤 ${user.first_name || ''} ${user.last_name || ''} (@${user.username || user.id})`;
+        } else {
+            userInfoEl.innerText = `👤 User ID: Standalone / Test Mode`;
+        }
+
+        // Elemen DOM
+        const video = document.getElementById('camera');
+        const canvas = document.getElementById('hiddenCanvas');
+        const btnCapture = document.getElementById('btnCapture');
+        const gpsStatusEl = document.getElementById('gpsStatus');
+        const officeStatusEl = document.getElementById('officeStatus');
+        const flashEl = document.getElementById('flash');
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalIcon = document.getElementById('modalIcon');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalDesc = document.getElementById('modalDesc');
+
+        let currentPosition = null;
+        let isInsideOffice = false;
+        let videoStream = null;
+
+        // 1. Inisialisasi Kamera Depan
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: "user" }, // Kamera Depan
+                        width: { ideal: 720 },
+                        height: { ideal: 960 }
+                    },
+                    audio: false
+                });
+                videoStream = stream;
+                video.srcObject = stream;
+                await video.play();
+            } catch (err) {
+                console.error("Camera Error:", err);
+                gpsStatusEl.innerText = "❌ Izin kamera ditolak!";
+                alert("Harap izinkan akses kamera langsung pada ponsel Anda.");
+            }
+        }
+
+        // 2. Inisialisasi Geolocation (GPS Akurasi Tinggi)
+        function initGeolocation() {
+            if (!navigator.geolocation) {
+                gpsStatusEl.innerText = "❌ GPS tidak didukung di perangkat ini.";
+                return;
+            }
+
+            gpsStatusEl.innerText = "⏳ Membaca koordinat...";
+
+            navigator.geolocation.watchPosition(
+                async (pos) => {
+                    currentPosition = {
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy
+                    };
+                    gpsStatusEl.innerHTML = `✅ Aktif (Akurasi: ±${Math.round(pos.coords.accuracy)}m)`;
+                    await checkOfficeProximity(pos.coords.latitude, pos.coords.longitude);
+                },
+                (err) => {
+                    console.warn("GPS Error:", err);
+                    gpsStatusEl.innerHTML = `<span class="status-rejected">❌ Gagal membaca GPS (${err.message})</span>`;
+                    btnCapture.disabled = true;
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+
+        // 3. Cek Jarak ke Kantor via API Backend
+        async function checkOfficeProximity(lat, lon) {
+            try {
+                const res = await fetch(`/api/check-location?lat=${lat}&lon=${lon}`);
+                const data = await res.json();
+                
+                if (data.is_valid) {
+                    isInsideOffice = true;
+                    officeStatusEl.innerHTML = `<span class="status-verified">🟢 ${data.matched_office.name} (${Math.round(data.distance)}m)</span>`;
+                    btnCapture.disabled = false;
+                    document.getElementById('faceGuide').style.borderColor = 'rgba(16, 185, 129, 0.8)';
+                } else {
+                    isInsideOffice = false;
+                    const nearest = data.closest_office ? `${data.closest_office.name} (${Math.round(data.closest_office.distance)}m)` : 'Luar Radius';
+                    officeStatusEl.innerHTML = `<span class="status-rejected">🔴 Di luar radius! Terdekat: ${nearest}</span>`;
+                    btnCapture.disabled = true;
+                    document.getElementById('faceGuide').style.borderColor = 'rgba(239, 68, 68, 0.8)';
+                }
+            } catch (e) {
+                console.error("Proximity Check Error:", e);
+                officeStatusEl.innerText = "⚠️ Gagal koneksi server";
+            }
+        }
+
+        // 4. Tombol Jepret Foto & Kirim Absensi
+        btnCapture.addEventListener('click', async () => {
+            if (!currentPosition) {
+                alert("Koordinat GPS belum siap. Mohon tunggu beberapa detik.");
+                return;
+            }
+            if (!isInsideOffice) {
+                alert("Anda masih berada di luar radius kantor Blimbing & Juanda!");
+                return;
+            }
+
+            // Haptic Feedback Telegram
+            tg?.HapticFeedback?.impactOccurred('medium');
+
+            // Flash Animation
+            flashEl.style.opacity = '0.9';
+            setTimeout(() => { flashEl.style.opacity = '0'; }, 150);
+
+            // Capture Frame ke Canvas
+            canvas.width = video.videoWidth || 720;
+            canvas.height = video.videoHeight || 960;
+            const ctx = canvas.getContext('2d');
+            
+            // Mirror flip canvas agar hasil sesuai preview selfie
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageBase64 = canvas.toDataURL('image/jpeg', 0.85);
+
+            // Tampilkan Modal Loading
+            showModal('⏳', 'Mengirim Absensi...', 'Sedang memvalidasi kehadiran Anda');
+            btnCapture.disabled = true;
+
+            try {
+                const payload = {
+                    initData: tg?.initData || '',
+                    user_id: user?.id || 0,
+                    full_name: `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || 'Karyawan',
+                    type: attendanceType,
+                    lat: currentPosition.lat,
+                    lon: currentPosition.lon,
+                    image: imageBase64
+                };
+
+                const response = await fetch('/api/submit-attendance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    tg?.HapticFeedback?.notificationOccurred('success');
+                    showModal('🎉', isCheckIn ? 'Absen Masuk Berhasil!' : 'Absen Pulang Berhasil!', `Terverifikasi di ${result.office} (${Math.round(result.distance)}m)`);
+                    
+                    // Tutup WebApp otomatis setelah 2 detik
+                    setTimeout(() => {
+                        if (tg) {
+                            tg.close();
+                        } else {
+                            alert("Absensi berhasil disimpan!");
+                        }
+                    }, 2000);
+                } else {
+                    tg?.HapticFeedback?.notificationOccurred('error');
+                    showModal('❌', 'Absensi Gagal', result.message || 'Terjadi kesalahan sistem.');
+                    setTimeout(hideModal, 3000);
+                    btnCapture.disabled = false;
+                }
+            } catch (err) {
+                console.error("Submit Error:", err);
+                tg?.HapticFeedback?.notificationOccurred('error');
+                showModal('❌', 'Koneksi Gagal', 'Gagal mengirim data ke server. Coba lagi.');
+                setTimeout(hideModal, 3000);
+                btnCapture.disabled = false;
+            }
+        });
+
+        function showModal(icon, title, desc) {
+            modalIcon.innerText = icon;
+            modalTitle.innerText = title;
+            modalDesc.innerText = desc;
+            modalOverlay.style.display = 'flex';
+        }
+
+        function hideModal() {
+            modalOverlay.style.display = 'none';
+        }
+
+        // Jalankan saat halaman dibuka
+        window.addEventListener('load', () => {
+            initCamera();
+            initGeolocation();
+        });
+    </script>
+</body>
+</html>
