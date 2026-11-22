@@ -39,6 +39,7 @@ function doPost(e) {
     var type = data.type || "Masuk";
     var officeName = data.office_name || "Kantor";
     var distance = data.distance !== undefined ? Math.round(data.distance) : 0;
+    var activity = data.activity || "-";
     var imageB64 = data.image_base64 || "";
     var filename = data.filename || ("selfie_" + date + "_" + time.replace(/:/g, "") + ".jpg");
 
@@ -79,11 +80,12 @@ function doPost(e) {
         "Tipe",
         "Lokasi Kantor",
         "Jarak (m)",
+        "Laporan Kegiatan",
         "Link Foto Drive"
       ]);
 
       // Styling Header (Warna Biru, Teks Putih, Tebal)
-      var headerRange = sheet.getRange(1, 1, 1, 9);
+      var headerRange = sheet.getRange(1, 1, 1, 10);
       headerRange.setFontWeight("bold");
       headerRange.setBackground("#2563eb");
       headerRange.setFontColor("#ffffff");
@@ -104,6 +106,7 @@ function doPost(e) {
       type,
       officeName,
       distance,
+      activity,
       photoCell
     ]);
 
@@ -114,7 +117,8 @@ function doPost(e) {
     sheet.getRange(lastRow, 5).setNumberFormat("@").setHorizontalAlignment("center"); // NISN sebagai teks
     sheet.getRange(lastRow, 6).setHorizontalAlignment("center"); // Tipe
     sheet.getRange(lastRow, 8).setHorizontalAlignment("right");  // Jarak
-    sheet.getRange(lastRow, 9).setHorizontalAlignment("center"); // Link Foto
+    sheet.getRange(lastRow, 9).setHorizontalAlignment("left");   // Laporan Kegiatan
+    sheet.getRange(lastRow, 10).setHorizontalAlignment("center"); // Link Foto
 
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",

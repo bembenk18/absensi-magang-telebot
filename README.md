@@ -9,12 +9,15 @@ Sistem absensi berbasis Telegram Bot dengan verifikasi **Lokasi GPS (Geofencing)
 - **Pendaftaran Siswa Baru & Approval Admin:** Siswa memasukkan **Nama Lengkap**, **Asal Sekolah**, dan **NISN**. Admin menerima notifikasi instan dengan tombol `[✅ Setujui]` atau `[❌ Tolak]`.
 - **Tombol Libur Akhir Pekan (Sabtu & Minggu):** Pada hari Sabtu dan Minggu, tombol **`[🏖️ Libur Hari Ini]`** otomatis muncul di menu utama bagi siswa yang memiliki jadwal libur. Status langsung tercatat dan tersinkron ke Google Sheet.
 - **Pengajuan Izin & Sakit (`📄 Ajukan Izin / Sakit`):** Siswa dapat mengajukan izin/sakit dengan memilih kategori, mengisi alasan, dan mengunggah foto surat dokter/surat sekolah. Admin menerima notifikasi instan untuk menyetujui atau menolak.
+- **Laporan Kegiatan Harian (`📝 Laporan Kegiatan`):** Siswa melaporkan apa saja kegiatan yang dikerjakan selama seharian saat Absen Pulang atau via menu laporan mandiri. Laporan tersimpan di database dan langsung tersinkron ke kolom Google Sheets & rekap CSV.
 - **Aturan Jam Masuk Dinamis & Kunci Otomatis (Cutoff):**
   - **Tanggal 1 - 12:** Jam masuk **08:00 WIB** (Broadcast pengingat jam **07:00 WIB**).
   - **Tanggal 13 - akhir bulan:** Jam masuk **09:00 WIB** (Broadcast pengingat jam **08:00 WIB**).
   - Jika siswa absen melewati batas jam masuk tersebut, sistem **otomatis menolak** dan menginstruksikan siswa untuk segera menghubungi pembimbing.
-- **Broadcast Pengingat Cerdas (1 Jam Sebelum Masuk):** Otomatis dikirim ke siswa yang belum absen. Siswa yang sudah absen, libur, atau izin/sakit otomatis tidak akan diganggu pesan pengingat.
-- **Integrasi Real-time Google Sheets & Google Drive:** Setiap absensi, izin/sakit, dan libur otomatis tercatat di Google Sheet, dan foto (selfie / surat dokter) langsung terunggah ke Google Drive dengan link yang bisa diklik.
+- **Jam Buka Cek Log Pulang (Mulai 17:00 WIB s/d 23:59 WIB):** Absen pulang baru dibuka mulai pukul **17:00 WIB (5 sore)**. Jika siswa mencoba absen pulang sebelum jam 17:00 WIB, bot otomatis menolak. Batas maksimal cek log adalah pukul **23:59 WIB (12 malam)**.
+- **Broadcast Pengingat Malam (20:00 WIB):** Bot mengirim pesan broadcast pengingat otomatis pukul 20:00 WIB khusus ke siswa yang sudah masuk namun belum pulang.
+- **Broadcast Pengingat Cerdas:** Otomatis dikirim ke siswa yang belum absen masuk pagi dan belum absen pulang malam.
+- **Integrasi Real-time Google Sheets & Google Drive:** Setiap absensi, laporan kegiatan, izin/sakit, dan libur otomatis tercatat di Google Sheet, dan foto (selfie / surat dokter) langsung terunggah ke Google Drive dengan link yang bisa diklik.
 - **Validasi Multi-Kantor (Geofencing GPS):** Mendukung Kantor Blimbing & Kantor Juanda (radius 100 meter).
 - **Profil & Riwayat:** Melihat status persetujuan, ketentuan jam masuk hari ini, dan riwayat absensi.
 - **Laporan Admin (Rekap CSV):** Admin dapat mengunduh rekapan data absensi lengkap dengan data sekolah dan NISN dalam format `.csv` untuk Excel/Spreadsheet.

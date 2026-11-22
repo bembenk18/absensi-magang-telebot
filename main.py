@@ -37,8 +37,9 @@ logger = logging.getLogger(__name__)
 # State untuk ConversationHandler
 REG_NAME, REG_SCHOOL, REG_NISN = range(3)
 CHECKIN_LOC, CHECKIN_PHOTO = range(3, 5)
-CHECKOUT_LOC, CHECKOUT_PHOTO = range(5, 7)
-LEAVE_TYPE, LEAVE_REASON, LEAVE_PHOTO = range(7, 10)
+CHECKOUT_LOC, CHECKOUT_PHOTO, CHECKOUT_ACTIVITY = range(5, 8)
+LEAVE_TYPE, LEAVE_REASON, LEAVE_PHOTO = range(8, 11)
+ACTIVITY_TEXT = 11
 
 def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     """Membuat keyboard menu utama."""
@@ -49,12 +50,10 @@ def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     btn_out = KeyboardButton("🔴 Absen Pulang")
 
     row1 = [btn_in, btn_out]
-    row2 = [KeyboardButton("📋 Riwayat Absensi"), KeyboardButton("👤 Profil Saya")]
-    
-    # Baris 3: Tombol Libur (hanya muncul Sabtu & Minggu) dan Tombol Izin/Sakit
-    row3 = [KeyboardButton("📄 Ajukan Izin / Sakit")]
+    row2 = [KeyboardButton("📝 Laporan Kegiatan"), KeyboardButton("📋 Riwayat Absensi")]
+    row3 = [KeyboardButton("👤 Profil Saya"), KeyboardButton("📄 Ajukan Izin / Sakit")]
     if is_weekend:
-        row3.insert(0, KeyboardButton("🏖️ Libur Hari Ini"))
+        row3.append(KeyboardButton("🏖️ Libur Hari Ini"))
 
     keyboard = [row1, row2, row3]
     if is_admin:
@@ -455,7 +454,10 @@ async def checkout_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not attendance or not attendance.get("check_in_time"):
         await update.message.reply_text(
-            "⚠️ Anda belum melakukan *Absen Masuk* hari ini. Silakan absen masuk terlebih dahulu.",
+            "⚠️ Anda belum melakukan *Absen Masuk* hari ini.\n\n"
+            "ℹ️ *Ketentuan Cek Log Pulang:*\n"
+            "• Absen pulang hanya dapat dilakukan pada hari yang sama setelah absen masuk.\n"
+            f"• Absen pulang dibuka mulai pukul *{config.CHECKOUT_OPEN_HOUR:02d}:{config.CHECKOUT_OPEN_MINUTE:02d} WIB* (jam 5 sore) hingga maksimal *23:59 WIB* (12 malam).",
             reply_markup=get_main_keyboard(is_admin),
             parse_mode="Markdown"
         )
@@ -471,6 +473,27 @@ async def checkout_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return ConversationHandler.END
+
+    # Validasi jam buka absen pulang (Mulai 17:00 WIB)
+    is_open, open_time_str, cur_time_str = utils.is_checkout_open()
+    if not is_open:
+        if not is_admin:
+            await update.message.reply_text(
+                f"⏳ *Absen Pulang Belum Dibuka!*\n\n"
+                f"Absen Pulang baru dibuka mulai pukul *{open_time_str} WIB* (jam 5 sore) "
+                f"hingga maksimal pukul *23:59 WIB* (12 malam).\n\n"
+                f"🕒 Waktu saat ini: `{cur_time_str} WIB`\n"
+                f"Silakan kembali lagi nanti setelah jam kerja selesai ya!",
+                reply_markup=get_main_keyboard(is_admin),
+                parse_mode="Markdown"
+            )
+            return ConversationHandler.END
+        else:
+            await update.message.reply_text(
+                f"ℹ️ *[Mode Admin]* Saat ini pukul `{cur_time_str} WIB` (sebelum jam buka {open_time_str} WIB).\n"
+                f"Akses admin mengizinkan untuk melanjutkan pengujian absen pulang.",
+                parse_mode="Markdown"
+            )
 
     text = (
         "🔴 **Proses Absen Pulang**\n\n"
@@ -544,10 +567,36 @@ async def checkout_photo_received(update: Update, context: ContextTypes.DEFAULT_
     filepath = config.PHOTOS_DIR / filename
     await photo_file.download_to_drive(custom_path=filepath)
 
+    context.user_data["checkout_photo_path"] = str(filepath)
+
+    text = (
+        "📸 *Foto Selfie Berhasil Diterima!*\n\n"
+        "📝 **Langkah Terakhir: Laporan Kegiatan Harian**\n\n"
+        "Silakan tuliskan ringkasan kegiatan / pekerjaan magang yang Anda lakukan seharian ini:\n"
+        "_(Contoh: 1. Merapikan kabel jaringan, 2. Backup database harian, 3. Input berkas inventaris)_"
+    )
+    await update.message.reply_text(text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+    return CHECKOUT_ACTIVITY
+
+async def checkout_activity_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    activity_text = update.message.text.strip() if update.message.text else ""
+    if not activity_text:
+        await update.message.reply_text(
+            "Mohon ketikkan ringkasan kegiatan Anda hari ini:",
+            reply_markup=get_cancel_keyboard()
+        )
+        return CHECKOUT_ACTIVITY
+
+    user_id = update.effective_user.id
+    is_admin = user_id in config.ADMIN_IDS
+    today_str = utils.get_today_str()
+    time_str = utils.get_current_time_str()
+
     lat = context.user_data.get("checkout_lat", 0.0)
     lon = context.user_data.get("checkout_lon", 0.0)
     distance = context.user_data.get("checkout_distance", 0.0)
     office_name = context.user_data.get("checkout_office", "Kantor")
+    filepath = context.user_data.get("checkout_photo_path", "")
 
     success = database.record_check_out(
         telegram_id=user_id,
@@ -556,8 +605,9 @@ async def checkout_photo_received(update: Update, context: ContextTypes.DEFAULT_
         lat=lat,
         lon=lon,
         distance=distance,
-        photo_path=str(filepath),
-        office_name=office_name
+        photo_path=filepath,
+        office_name=office_name,
+        activity=activity_text
     )
 
     if success:
@@ -572,15 +622,17 @@ async def checkout_photo_received(update: Update, context: ContextTypes.DEFAULT_
             date_str=today_str,
             time_str=time_str,
             distance=distance,
-            photo_path=str(filepath)
+            photo_path=filepath,
+            activity=activity_text
         )
 
         text = (
-            f"🎉 *Absen Pulang Berhasil!*\n\n"
+            f"🎉 *Absen Pulang & Laporan Kegiatan Berhasil!*\n\n"
             f"🏢 Lokasi: *{office_name}*\n"
             f"📅 Tanggal: *{today_str}*\n"
             f"🕒 Jam Pulang: *{time_str} WIB*\n"
-            f"📍 Jarak Kantor: *{distance:,.0f} meter*\n\n"
+            f"📍 Jarak Kantor: *{distance:,.0f} meter*\n"
+            f"📝 *Laporan Kegiatan:*\n_{activity_text}_\n\n"
             f"Terima kasih atas kerja keras Anda hari ini. Selamat beristirahat!"
         )
     else:
@@ -588,6 +640,98 @@ async def checkout_photo_received(update: Update, context: ContextTypes.DEFAULT_
 
     await update.message.reply_text(text, reply_markup=get_main_keyboard(is_admin), parse_mode="Markdown")
     context.user_data.clear()
+    return ConversationHandler.END
+
+# ==========================================================
+# 4. HANDLER LAPORAN KEGIATAN HARIAN (MANDIRI)
+# ==========================================================
+async def activity_report_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memulai proses pengisian atau pembaruan laporan kegiatan harian."""
+    user_id = update.effective_user.id
+    db_user = database.get_user(user_id)
+    is_admin = user_id in config.ADMIN_IDS
+
+    if not db_user:
+        await update.message.reply_text("⚠️ Anda belum terdaftar. Silakan ketik /start untuk mendaftar.")
+        return ConversationHandler.END
+
+    if db_user.get("status") != "approved":
+        await update.message.reply_text("⏳ Akun Anda belum disetujui Admin.")
+        return ConversationHandler.END
+
+    today_str = utils.get_today_str()
+    att = database.get_today_attendance(user_id, today_str)
+
+    if not att or not att.get("check_in_time") or att.get("check_in_time") == "-":
+        await update.message.reply_text(
+            "⚠️ Anda belum melakukan *Absen Masuk* hari ini.\n"
+            "Laporan kegiatan hanya dapat diisi jika Anda telah hadir bekerja.",
+            reply_markup=get_main_keyboard(is_admin),
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+    current_act = att.get("activity")
+    if current_act:
+        prompt = (
+            f"📝 *Laporan Kegiatan Hari Ini ({today_str}):*\n\n"
+            f"_{current_act}_\n\n"
+            f"✏️ *Ingin memperbarui isi laporan kegiatan?*\n"
+            f"Silakan ketikkan teks laporan baru di bawah, atau tekan **❌ Batal** jika tidak ingin mengubah."
+        )
+    else:
+        prompt = (
+            f"📝 *Input Laporan Kegiatan Hari Ini ({today_str})*\n\n"
+            f"Silakan ketikkan rangkuman kegiatan / pekerjaan yang Anda kerjakan hari ini:\n"
+            f"_(Contoh: 1. Merapikan kabel jaringan, 2. Backup database harian, 3. Input berkas inventaris)_"
+        )
+
+    await update.message.reply_text(prompt, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+    return ACTIVITY_TEXT
+
+async def activity_report_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    activity_text = update.message.text.strip() if update.message.text else ""
+    if not activity_text:
+        await update.message.reply_text("Mohon ketikkan laporan kegiatan Anda:", reply_markup=get_cancel_keyboard())
+        return ACTIVITY_TEXT
+
+    user_id = update.effective_user.id
+    is_admin = user_id in config.ADMIN_IDS
+    today_str = utils.get_today_str()
+    time_str = utils.get_current_time_str()
+
+    success = database.update_activity_report(user_id, today_str, activity_text)
+    if success:
+        db_user = database.get_user(user_id)
+        att = database.get_today_attendance(user_id, today_str)
+        # Update / kirim ke Google Sheets
+        sheets_sync.trigger_sheet_sync(
+            full_name=db_user.get("full_name", "Siswa") if db_user else "Siswa",
+            school=db_user.get("school", "-") if db_user else "-",
+            nisn=db_user.get("nisn", "-") if db_user else "-",
+            att_type="Laporan",
+            office_name=att.get("check_in_office", "-") if att else "-",
+            date_str=today_str,
+            time_str=time_str,
+            distance=0,
+            photo_path="",
+            activity=activity_text
+        )
+
+        await update.message.reply_text(
+            f"✅ *Laporan Kegiatan Berhasil Disimpan!*\n\n"
+            f"📅 Tanggal: *{today_str}*\n"
+            f"📝 *Kegiatan:*\n_{activity_text}_\n\n"
+            f"Laporan kegiatan telah tercatat di sistem & Google Sheets.",
+            reply_markup=get_main_keyboard(is_admin),
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "❌ Gagal menyimpan laporan kegiatan. Pastikan Anda sudah absen masuk hari ini.",
+            reply_markup=get_main_keyboard(is_admin)
+        )
+
     return ConversationHandler.END
 
 # ==========================================================
@@ -903,6 +1047,7 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     in_status = f"{today_att['check_in_time']}{in_office}" if today_att and today_att.get("check_in_time") else "Belum"
     out_status = f"{today_att['check_out_time']}{out_office}" if today_att and today_att.get("check_out_time") else "Belum"
+    act_status = today_att.get("activity") if today_att and today_att.get("activity") else "Belum diisi"
 
     office_list_text = "\n".join([f"• *{o['name']}* (Radius {o['radius']:,.0f}m)" for o in config.OFFICES])
 
@@ -918,12 +1063,15 @@ async def profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• ID Telegram: `{user_id}`\n"
         f"• Status Akun: *{status_label}*\n"
         f"• Role: *{db_user['role'].capitalize()}*\n\n"
-        f"⏰ *Jadwal Jam Masuk Hari Ini:*\n"
-        f"• Aturan: *{sched['rule']}*\n"
-        f"• Batas Maksimal Masuk: *{sched['entry_time_str']} WIB*\n\n"
+        f"⏰ *Ketentuan Jam Absensi Hari Ini:*\n"
+        f"• Periode Masuk: *{sched['rule']}*\n"
+        f"• Batas Maksimal Masuk: *{sched['entry_time_str']} WIB*\n"
+        f"• Jam Buka Absen Pulang: *{config.CHECKOUT_OPEN_HOUR:02d}:{config.CHECKOUT_OPEN_MINUTE:02d} WIB (5 Sore)*\n"
+        f"• Batas Maksimal Cek Log Pulang: *23:59 WIB (12 Malam)*\n\n"
         f"📌 *Status Absensi Hari Ini ({today_str}):*\n"
         f"• Masuk: *{in_status}*\n"
-        f"• Pulang: *{out_status}*\n\n"
+        f"• Pulang: *{out_status}*\n"
+        f"• Laporan Kegiatan: *{act_status}*\n\n"
         f"🏢 *Daftar Kantor Terdaftar:*\n"
         f"{office_list_text}"
     )
@@ -1091,13 +1239,50 @@ async def send_reminder_to_students(bot, is_manual: bool = False) -> int:
 
     return sent_count
 
+async def send_checkout_reminder_to_students(bot) -> int:
+    """Mengirim pesan broadcast pengingat absen pulang ke siswa yang sudah masuk tapi belum pulang."""
+    today_str = utils.get_today_str()
+    students = database.get_approved_students()
+    sent_count = 0
+
+    for student in students:
+        student_id = student["telegram_id"]
+        att = database.get_today_attendance(student_id, today_str)
+
+        has_checked_in = att and att.get("check_in_time") and att.get("check_in_time") != "-"
+        has_checked_out = att and att.get("check_out_time") and att.get("check_out_time") != "-"
+        is_day_off = att and att.get("status") in ("Libur", "Izin", "Sakit")
+
+        if has_checked_in and not has_checked_out and not is_day_off:
+            reminder_text = (
+                f"⏰ *PENGINGAT CEK LOG PULANG & LAPORAN KEGIATAN*\n\n"
+                f"Halo, *{student['full_name']}*!\n\n"
+                f"Anda tercatat sudah melakukan *Absen Masuk* hari ini, namun **belum melakukan Absen Pulang**.\n\n"
+                f"⚠️ *Batas Waktu Cek Log:* Batas maksimal untuk absen pulang dan mengirimkan laporan kegiatan adalah pukul **23:59 WIB (12 malam)**.\n\n"
+                f"Silakan tekan tombol **'🔴 Absen Pulang'** sekarang agar kehadiran dan laporan kegiatan Anda tercatat lengkap!"
+            )
+            try:
+                await bot.send_message(
+                    chat_id=student_id,
+                    text=reminder_text,
+                    reply_markup=get_main_keyboard(False),
+                    parse_mode="Markdown"
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.warning("Gagal mengirim pengingat pulang ke siswa %s: %s", student_id, e)
+
+    return sent_count
+
 async def reminder_scheduler_loop(bot):
     """
     Background loop yang berjalan setiap 30 detik untuk mengecek waktu pengingat:
-    - Tanggal 1 s/d 12: Pengingat otomatis dikirim pukul 07:00 WIB (1 jam sebelum jam masuk 08:00 WIB)
-    - Tanggal 13 s/d akhir: Pengingat otomatis dikirim pukul 08:00 WIB (1 jam sebelum jam masuk 09:00 WIB)
+    - Tanggal 1 s/d 12: Pengingat masuk otomatis dikirim pukul 07:00 WIB (1 jam sebelum masuk 08:00 WIB)
+    - Tanggal 13 s/d akhir: Pengingat masuk otomatis dikirim pukul 08:00 WIB (1 jam sebelum masuk 09:00 WIB)
+    - Setiap Malam (20:00 WIB): Pengingat cek log pulang bagi yang belum absen pulang (batas max 12 malam)
     """
-    last_broadcast_date = ""
+    last_morning_broadcast_date = ""
+    last_evening_broadcast_date = ""
     logger.info("Scheduler pengingat absensi otomatis aktif.")
 
     while True:
@@ -1106,15 +1291,25 @@ async def reminder_scheduler_loop(bot):
             today_str = utils.get_today_str()
             sched = utils.get_work_schedule(now)
 
-            # Cek apakah saat ini waktu pengingat dan belum dikirim hari ini
+            # 1. Cek pengingat jam masuk pagi
             if (now.hour == sched["reminder_hour"] and 
                 now.minute == sched["reminder_minute"] and 
-                last_broadcast_date != today_str):
+                last_morning_broadcast_date != today_str):
 
-                last_broadcast_date = today_str
-                logger.info("Mengirim broadcast pengingat otomatis (%s)...", sched["rule"])
+                last_morning_broadcast_date = today_str
+                logger.info("Mengirim broadcast pengingat masuk otomatis (%s)...", sched["rule"])
                 total_sent = await send_reminder_to_students(bot)
-                logger.info("Pengingat otomatis berhasil dikirim ke %d siswa.", total_sent)
+                logger.info("Pengingat masuk otomatis berhasil dikirim ke %d siswa.", total_sent)
+
+            # 2. Cek pengingat cek log pulang malam (20:00 WIB)
+            if (now.hour == 20 and 
+                now.minute == 0 and 
+                last_evening_broadcast_date != today_str):
+
+                last_evening_broadcast_date = today_str
+                logger.info("Mengirim broadcast pengingat cek log pulang (20:00 WIB)...")
+                total_checkout_sent = await send_checkout_reminder_to_students(bot)
+                logger.info("Pengingat pulang malam berhasil dikirim ke %d siswa.", total_checkout_sent)
 
         except Exception as e:
             logger.error("Error pada scheduler pengingat: %s", e)
@@ -1132,6 +1327,20 @@ async def broadcast_pengingat_command(update: Update, context: ContextTypes.DEFA
     total_sent = await send_reminder_to_students(context.bot, is_manual=True)
     await update.message.reply_text(
         f"✅ Selesai! Pengingat berhasil dikirim ke *{total_sent} siswa* yang belum absen masuk hari ini.",
+        parse_mode="Markdown"
+    )
+
+async def broadcast_pengingat_pulang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Perintah manual bagi Admin untuk mengirimkan broadcast pengingat pulang sekarang (/kirimpengingatpulang)."""
+    user_id = update.effective_user.id
+    if user_id not in config.ADMIN_IDS:
+        await update.message.reply_text("⛔ Perintah ini khusus untuk Admin.")
+        return
+
+    await update.message.reply_text("⏳ Sedang mengirimkan pengingat pulang ke siswa yang belum cek log pulang...")
+    total_sent = await send_checkout_reminder_to_students(context.bot)
+    await update.message.reply_text(
+        f"✅ Selesai! Pengingat pulang berhasil dikirim ke *{total_sent} siswa* yang belum checkout hari ini.",
         parse_mode="Markdown"
     )
 
@@ -1236,6 +1445,10 @@ def main():
             CHECKOUT_PHOTO: [
                 *cancel_handlers,
                 MessageHandler(filters.PHOTO, checkout_photo_received)
+            ],
+            CHECKOUT_ACTIVITY: [
+                *cancel_handlers,
+                MessageHandler(filters.TEXT & ~filters.COMMAND, checkout_activity_received)
             ]
         },
         fallbacks=cancel_handlers
@@ -1264,11 +1477,27 @@ def main():
         fallbacks=cancel_handlers
     )
 
+    # 5. Conversation Handler Laporan Kegiatan Harian
+    activity_conv = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex("^📝 Laporan Kegiatan$"), activity_report_start),
+            CommandHandler("lapor", activity_report_start)
+        ],
+        states={
+            ACTIVITY_TEXT: [
+                *cancel_handlers,
+                MessageHandler(filters.TEXT & ~filters.COMMAND, activity_report_received)
+            ]
+        },
+        fallbacks=cancel_handlers
+    )
+
     # Daftarkan handlers
     app.add_handler(reg_conv)
     app.add_handler(checkin_conv)
     app.add_handler(checkout_conv)
     app.add_handler(leave_conv)
+    app.add_handler(activity_conv)
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^(approve|reject)_"))
     app.add_handler(CallbackQueryHandler(leave_approval_callback, pattern="^(leaveapp|leaverej)_"))
 
@@ -1277,11 +1506,14 @@ def main():
     app.add_handler(CommandHandler("libur", day_off_handler))
 
     # Menu statis
+    app.add_handler(MessageHandler(filters.Regex("^📝 Laporan Kegiatan$"), activity_report_start))
     app.add_handler(MessageHandler(filters.Regex("^👤 Profil Saya$"), profile_handler))
     app.add_handler(MessageHandler(filters.Regex("^📋 Riwayat Absensi$"), history_handler))
     app.add_handler(MessageHandler(filters.Regex("^📊 Rekap Absensi \\(Admin\\)$"), rekap_admin_handler))
     app.add_handler(CommandHandler("rekap", rekap_admin_handler))
     app.add_handler(CommandHandler("kirimpengingat", broadcast_pengingat_command))
+    app.add_handler(CommandHandler("kirimpengingatpulang", broadcast_pengingat_pulang_command))
+    app.add_handler(CommandHandler("lapor", activity_report_start))
     app.add_handler(CommandHandler("profil", profile_handler))
     app.add_handler(CommandHandler("riwayat", history_handler))
     app.add_handler(CommandHandler("cancel", cancel_handler))

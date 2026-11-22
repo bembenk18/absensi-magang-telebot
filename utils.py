@@ -3,6 +3,7 @@ import csv
 from datetime import datetime
 from typing import List, Dict, Any
 import pytz
+import config
 from config import TIMEZONE, REPORTS_DIR
 
 def get_now() -> datetime:
@@ -60,6 +61,23 @@ def is_past_entry_cutoff(dt: datetime = None) -> tuple[bool, str, str]:
     )
     is_late = now > cutoff
     return is_late, sched["entry_time_str"], now.strftime("%H:%M:%S")
+
+def is_checkout_open(dt: datetime = None) -> tuple[bool, str, str]:
+    """
+    Mengecek apakah waktu saat ini telah memasuki jam buka absen pulang.
+    Default: mulai pukul 17:00 WIB (jam 5 sore) hingga 23:59 WIB.
+    Mengembalikan: (is_open, open_time_str, current_time_str)
+    """
+    now = dt or get_now()
+    open_time = now.replace(
+        hour=config.CHECKOUT_OPEN_HOUR,
+        minute=config.CHECKOUT_OPEN_MINUTE,
+        second=0,
+        microsecond=0
+    )
+    is_open = now >= open_time
+    open_time_str = f"{config.CHECKOUT_OPEN_HOUR:02d}:{config.CHECKOUT_OPEN_MINUTE:02d}"
+    return is_open, open_time_str, now.strftime("%H:%M:%S")
 
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
@@ -140,6 +158,7 @@ def generate_csv_report(records: list[dict], filename_prefix: str = "rekap_absen
         "Kantor Pulang",
         "Jam Pulang",
         "Jarak Pulang (m)",
+        "Laporan Kegiatan",
         "Status"
     ]
 
@@ -158,6 +177,7 @@ def generate_csv_report(records: list[dict], filename_prefix: str = "rekap_absen
                 "Kantor Pulang": r.get("check_out_office") or "-",
                 "Jam Pulang": r.get("check_out_time") or "-",
                 "Jarak Pulang (m)": r.get("check_out_distance") if r.get("check_out_distance") is not None else "-",
+                "Laporan Kegiatan": r.get("activity") or "-",
                 "Status": r.get("status", "Hadir")
             })
 

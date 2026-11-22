@@ -14,6 +14,14 @@ TIMEZONE = os.getenv("TIMEZONE", "Asia/Jakarta")
 # Konfigurasi Sinkronisasi Google Sheets & Google Drive
 GOOGLE_SHEET_WEBHOOK_URL = os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip()
 
+# Jam Buka Absen Pulang (Default: 17:00 WIB / jam 5 sore)
+try:
+    CHECKOUT_OPEN_HOUR = int(os.getenv("CHECKOUT_OPEN_HOUR", "17"))
+    CHECKOUT_OPEN_MINUTE = int(os.getenv("CHECKOUT_OPEN_MINUTE", "0"))
+except ValueError:
+    CHECKOUT_OPEN_HOUR = 17
+    CHECKOUT_OPEN_MINUTE = 0
+
 # Admin IDs
 admin_ids_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = set()

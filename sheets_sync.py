@@ -17,10 +17,11 @@ async def sync_attendance_to_sheets(
     date_str: str,
     time_str: str,
     distance: float,
-    photo_path: str
+    photo_path: str,
+    activity: str = "-"
 ):
     """
-    Mengirimkan data absensi beserta foto selfie ke Google Apps Script Webhook
+    Mengirimkan data absensi beserta foto selfie dan laporan kegiatan ke Google Apps Script Webhook
     secara otomatis untuk dicatat di Google Sheets dan diunggah ke Google Drive.
     """
     webhook_url = config.GOOGLE_SHEET_WEBHOOK_URL
@@ -46,6 +47,7 @@ async def sync_attendance_to_sheets(
             "type": att_type,
             "office_name": office_name,
             "distance": distance,
+            "activity": activity or "-",
             "filename": filename if filename != "-" else f"selfie_{date_str}_{time_str.replace(':', '')}.jpg",
             "image_base64": image_b64
         }
@@ -69,7 +71,8 @@ def trigger_sheet_sync(
     date_str: str,
     time_str: str,
     distance: float,
-    photo_path: str
+    photo_path: str,
+    activity: str = "-"
 ):
     """Menjalankan sinkronisasi secara non-blocking di background tanpa memperlambat bot."""
     if config.GOOGLE_SHEET_WEBHOOK_URL:
@@ -83,6 +86,7 @@ def trigger_sheet_sync(
                 date_str=date_str,
                 time_str=time_str,
                 distance=distance,
-                photo_path=photo_path
+                photo_path=photo_path,
+                activity=activity
             )
         )

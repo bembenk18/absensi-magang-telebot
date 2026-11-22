@@ -83,6 +83,8 @@ def init_db():
             cursor.execute("ALTER TABLE attendances ADD COLUMN check_in_office TEXT")
         if "check_out_office" not in existing_att_cols:
             cursor.execute("ALTER TABLE attendances ADD COLUMN check_out_office TEXT")
+        if "activity" not in existing_att_cols:
+            cursor.execute("ALTER TABLE attendances ADD COLUMN activity TEXT")
 
         conn.commit()
 
@@ -185,9 +187,10 @@ def record_check_out(
     lon: float,
     distance: float,
     photo_path: str,
-    office_name: str = ""
+    office_name: str = "",
+    activity: str = ""
 ) -> bool:
-    """Catat absensi pulang beserta nama kantor."""
+    """Catat absensi pulang beserta nama kantor dan laporan kegiatan."""
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -198,11 +201,27 @@ def record_check_out(
                     check_out_lat = ?,
                     check_out_lon = ?,
                     check_out_distance = ?,
-                    check_out_photo = ?
+                    check_out_photo = ?,
+                    activity = COALESCE(NULLIF(?, ''), activity)
                 WHERE telegram_id = ? AND date = ?
-            """, (office_name, time_str, lat, lon, distance, photo_path, telegram_id, date_str))
+            """, (office_name, time_str, lat, lon, distance, photo_path, activity, telegram_id, date_str))
             conn.commit()
             return True
+        except sqlite3.Error:
+            return False
+
+def update_activity_report(telegram_id: int, date_str: str, activity: str) -> bool:
+    """Memperbarui atau mengisi laporan kegiatan harian siswa."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE attendances 
+                SET activity = ?
+                WHERE telegram_id = ? AND date = ?
+            """, (activity, telegram_id, date_str))
+            conn.commit()
+            return cursor.rowcount > 0
         except sqlite3.Error:
             return False
 
