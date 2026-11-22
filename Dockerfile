@@ -17,8 +17,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Salin seluruh kode aplikasi
 COPY . .
 
-# Port untuk Telegram Mini App Web Server
-EXPOSE 8080
-
 # Jalankan bot
 CMD ["python", "main.py"]

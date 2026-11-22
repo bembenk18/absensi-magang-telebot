@@ -11,13 +11,6 @@ load_dotenv(BASE_DIR / ".env")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Jakarta")
 
-# Konfigurasi Telegram Mini App (Web App)
-WEB_APP_URL = os.getenv("WEB_APP_URL", "").strip()
-try:
-    WEB_APP_PORT = int(os.getenv("WEB_APP_PORT", "8080"))
-except ValueError:
-    WEB_APP_PORT = 8080
-
 # Konfigurasi Sinkronisasi Google Sheets & Google Drive
 GOOGLE_SHEET_WEBHOOK_URL = os.getenv("GOOGLE_SHEET_WEBHOOK_URL", "").strip()
 

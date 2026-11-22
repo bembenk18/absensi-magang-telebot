@@ -10,7 +10,6 @@ from telegram import (
     ReplyKeyboardRemove,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    WebAppInfo,
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -22,12 +21,10 @@ from telegram.ext import (
     filters,
     Application,
 )
-from aiohttp import web
 
 import config
 import database
 import utils
-import webapp_server
 import sheets_sync
 
 # Setup logging
@@ -48,12 +45,8 @@ def get_main_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     now = utils.get_now()
     is_weekend = now.weekday() in (5, 6) # Sabtu (5) atau Minggu (6)
 
-    if config.WEB_APP_URL:
-        btn_in = KeyboardButton("🟢 Absen Masuk (Live Cam)", web_app=WebAppInfo(url=f"{config.WEB_APP_URL}/?type=checkin"))
-        btn_out = KeyboardButton("🔴 Absen Pulang (Live Cam)", web_app=WebAppInfo(url=f"{config.WEB_APP_URL}/?type=checkout"))
-    else:
-        btn_in = KeyboardButton("🟢 Absen Masuk")
-        btn_out = KeyboardButton("🔴 Absen Pulang")
+    btn_in = KeyboardButton("🟢 Absen Masuk")
+    btn_out = KeyboardButton("🔴 Absen Pulang")
 
     row1 = [btn_in, btn_out]
     row2 = [KeyboardButton("📋 Riwayat Absensi"), KeyboardButton("👤 Profil Saya")]
@@ -295,18 +288,6 @@ async def checkin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    if config.WEB_APP_URL:
-        inline_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📸 Buka Kamera Langsung Absen Masuk", web_app=WebAppInfo(url=f"{config.WEB_APP_URL}/?type=checkin"))]
-        ])
-        text = (
-            "🟢 **Absen Masuk (Live Camera)**\n\n"
-            "Silakan klik tombol di bawah untuk membuka **kamera selfie langsung**.\n"
-            "_(Kamera langsung aktif, opsi galeri tidak tersedia)_"
-        )
-        await update.message.reply_text(text, reply_markup=inline_kb, parse_mode="Markdown")
-        return ConversationHandler.END
-
     text = (
         "🟢 **Proses Absen Masuk**\n\n"
         "Langkah 1: Silakan bagikan lokasi GPS Anda saat ini dengan menekan tombol **'📍 Kirim Lokasi Saat Ini'** di bawah."
@@ -489,18 +470,6 @@ async def checkout_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_keyboard(is_admin),
             parse_mode="Markdown"
         )
-        return ConversationHandler.END
-
-    if config.WEB_APP_URL:
-        inline_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📸 Buka Kamera Langsung Absen Pulang", web_app=WebAppInfo(url=f"{config.WEB_APP_URL}/?type=checkout"))]
-        ])
-        text = (
-            "🔴 **Absen Pulang (Live Camera)**\n\n"
-            "Silakan klik tombol di bawah untuk membuka **kamera selfie langsung**.\n"
-            "_(Kamera langsung aktif, opsi galeri tidak tersedia)_"
-        )
-        await update.message.reply_text(text, reply_markup=inline_kb, parse_mode="Markdown")
         return ConversationHandler.END
 
     text = (
@@ -1197,35 +1166,12 @@ def main():
     for o in config.OFFICES:
         logger.info(" - %s: (%s, %s) radius %sm", o['name'], o['lat'], o['lon'], o['radius'])
 
-    # Inisialisasi Bot Application & Mini App Server
-    webapp_runner = None
-
+    # Inisialisasi Bot Application
     async def on_startup(application: Application):
-        nonlocal webapp_runner
-        try:
-            server_app = webapp_server.create_webapp()
-            webapp_runner = web.AppRunner(server_app)
-            await webapp_runner.setup()
-            site = web.TCPSite(webapp_runner, "0.0.0.0", config.WEB_APP_PORT)
-            await site.start()
-            logger.info("Mini App Web Server aktif di http://0.0.0.0:%d", config.WEB_APP_PORT)
-            if config.WEB_APP_URL:
-                logger.info("Mini App URL terpasang: %s", config.WEB_APP_URL)
-            else:
-                logger.info("Tips: Isi WEB_APP_URL di file .env untuk mengaktifkan tombol Telegram Mini App.")
-        except Exception as e:
-            logger.error("Gagal menjalankan Web Server Mini App: %s", e)
-
         # Aktifkan scheduler pengingat otomatis di background
         asyncio.create_task(reminder_scheduler_loop(application.bot))
 
-    async def on_shutdown(application: Application):
-        nonlocal webapp_runner
-        if webapp_runner:
-            await webapp_runner.cleanup()
-            logger.info("Mini App Web Server telah dimatikan.")
-
-    app = ApplicationBuilder().token(config.BOT_TOKEN).post_init(on_startup).post_shutdown(on_shutdown).build()
+    app = ApplicationBuilder().token(config.BOT_TOKEN).post_init(on_startup).build()
 
     # Handler pembatalan
     cancel_handlers = [
