@@ -1,6 +1,12 @@
+version: '3.3'
+
 services:
   absensi-bot:
-    build: .
+    build:
+      context: .
+      args:
+        UID: 1000
+        GID: 1000
     container_name: absensi-bot
     restart: unless-stopped
     security_opt:

@@ -7,8 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Buat user non-root untuk menjalankan aplikasi
-RUN groupadd -r appuser && useradd -r -g appuser -m appuser
+# Buat user non-root untuk menjalankan aplikasi dengan UID/GID 1000 (sesuai user default host Linux)
+ARG UID=1000
+ARG GID=1000
+RUN (getent group $GID || groupadd -g $GID appuser) && \
+    (getent passwd $UID || useradd -u $UID -g $GID -m -s /bin/bash appuser)
 
 # Set direktori kerja di dalam kontainer
 WORKDIR /app
