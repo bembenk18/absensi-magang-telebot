@@ -5,3 +5,15 @@ __pycache__/
 .gitignore
 .DS_Store
 *.log
+.env
+*.env
+!.env.example
+attendance.db*
+*.db
+*.sqlite*
+photos/*
+!photos/.gitkeep
+reports/*
+!reports/.gitkeep
+tests/
+.agents/

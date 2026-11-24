@@ -1,67 +1,161 @@
 /**
  * ============================================================================
- * GOOGLE APPS SCRIPT - SINKRONISASI ABSENSI TELEGRAM
+ * GOOGLE APPS SCRIPT - SINKRONISASI ABSENSI TELEGRAM (HARDENED)
  * ============================================================================
- * 
+ *
  * CARA MEMASANG DI GOOGLE SPREADSHEET:
  * 1. Buka spreadsheet baru di Google Sheets (sheets.new).
  * 2. Klik menu: Extensions (Ekstensi) > Apps Script.
  * 3. Hapus kode bawaan (myFunction), lalu paste seluruh kode di bawah ini.
- * 4. Klik tombol "Save" (ikon disket 💾).
- * 5. Klik tombol biru "Deploy" (Terapkan) di pojok kanan atas > "New deployment" (Penerapan baru).
- * 6. Klik ikon gerigi ⚙️ di sebelah "Select type" > pilih "Web app".
- * 7. Isi form:
+ * 4. Buka Project Settings (ikon gerigi) > Script Properties > Add script property:
+ *    - Property: WEBHOOK_SECRET
+ *    - Value   : <isi secret acak minimal 32 karakter, SAMA dengan GOOGLE_SHEET_WEBHOOK_SECRET di .env>
+ * 5. Klik tombol "Save" (ikon disket).
+ * 6. Klik "Deploy" > "New deployment" > pilih "Web app":
  *    - Description: Webhook Absensi
- *    - Execute as: Me (email akun Google Anda)
- *    - Who has access: Anyone (Siapa saja)  <-- PENTING! Agar bot bisa kirim data.
- * 8. Klik "Deploy". Jika muncul "Authorize access", izinkan dengan akun Google Anda.
- * 9. Salin "Web app URL" (format: https://script.google.com/macros/s/.../exec).
- * 10. Masukkan URL tersebut ke file .env bot:
- *     GOOGLE_SHEET_WEBHOOK_URL=https://script.google.com/macros/s/.../exec
+ *    - Execute as: Me
+ *    - Who has access: Anyone  <-- Endpoint tetap terautentikasi oleh HMAC-SHA256 WEBHOOK_SECRET.
+ * 7. Salin "Web app URL" ke .env (GOOGLE_SHEET_WEBHOOK_URL=https://script.google.com/macros/s/.../exec)
+ *    dan isi GOOGLE_SHEET_WEBHOOK_SECRET dengan nilai yang sama.
  */
+
+var MAX_SKEW_SECONDS = 300; // Toleransi 5 menit untuk timestamp HMAC
+
+function bytesToHex(bytes) {
+  return bytes.map(function(b) {
+    var v = (b < 0) ? b + 256 : b;
+    return ("0" + v.toString(16)).slice(-2);
+  }).join("");
+}
+
+function constantTimeEquals(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") {
+    return false;
+  }
+  var maxLen = Math.max(a.length, b.length);
+  var diff = a.length ^ b.length;
+  for (var i = 0; i < maxLen; i++) {
+    var ca = i < a.length ? a.charCodeAt(i) : 0;
+    var cb = i < b.length ? b.charCodeAt(i) : 0;
+    diff |= (ca ^ cb);
+  }
+  return diff === 0;
+}
+
+function sanitizeCell(val) {
+  if (val === null || val === undefined) {
+    return "-";
+  }
+  var s = String(val);
+  if (s === "" || s === "-") {
+    return "-";
+  }
+  if (/^[=+\-@\t\r\n\v\f]/.test(s)) {
+    return "'" + s;
+  }
+  var trimmed = s.replace(/^[\s\u00a0\u200b\u200c\u200d\ufeff]+/, "");
+  if (/^[=+\-@]/.test(trimmed) || /^"+[\s\u00a0\u200b\u200c\u200d\ufeff]*[=+\-@]/.test(trimmed)) {
+    return "'" + s;
+  }
+  return s;
+}
+
+function sanitizeFilename(name) {
+  var cleaned = String(name || "selfie.jpg").replace(/[^a-zA-Z0-9._-]/g, "_");
+  if (!cleaned || cleaned === "." || cleaned === "..") {
+    return "selfie.jpg";
+  }
+  return cleaned.slice(0, 120);
+}
+
+function jsonResponse(payload) {
+  return ContentService.createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function verifyWebhookAuth(data, date, time, fullName, type) {
+  var configuredSecret = PropertiesService.getScriptProperties().getProperty("WEBHOOK_SECRET") || "";
+  if (!configuredSecret) {
+    console.error("WEBHOOK_SECRET belum dikonfigurasi pada Script Properties.");
+    return false;
+  }
+
+  var tsRaw = String(data.timestamp || "");
+  var nonce = String(data.nonce || "");
+  var signature = String(data.signature || "").toLowerCase();
+
+  if (!/^\d+$/.test(tsRaw) || !nonce || !/^[a-f0-9]{64}$/.test(signature)) {
+    return false;
+  }
+
+  var nowSec = Math.floor(Date.now() / 1000);
+  var tsSec = parseInt(tsRaw, 10);
+  if (Math.abs(nowSec - tsSec) > MAX_SKEW_SECONDS) {
+    return false;
+  }
+
+  // Cegah replay attack menggunakan ScriptCache
+  var cache = CacheService.getScriptCache();
+  var cacheKey = "nonce_" + nonce;
+  if (cache.get(cacheKey) !== null) {
+    return false;
+  }
+
+  var canonical = tsRaw + ":" + nonce + ":" + date + ":" + time + ":" + fullName + ":" + type;
+  var sigBytes = Utilities.computeHmacSha256Signature(canonical, configuredSecret, Utilities.Charset.UTF_8);
+  var expectedSig = bytesToHex(sigBytes);
+
+  if (!constantTimeEquals(signature, expectedSig)) {
+    return false;
+  }
+
+  cache.put(cacheKey, "1", MAX_SKEW_SECONDS + 60);
+  return true;
+}
 
 function doPost(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) {
-      return ContentService.createTextOutput(JSON.stringify({
-        status: "error",
-        message: "Tidak ada data post yang diterima"
-      })).setMimeType(ContentService.MimeType.JSON);
+      return jsonResponse({ status: "error", message: "Invalid request payload" });
     }
 
     var data = JSON.parse(e.postData.contents);
 
-    var date = data.date || Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM-dd");
-    var time = data.time || Utilities.formatDate(new Date(), "Asia/Jakarta", "HH:mm:ss");
-    var fullName = data.full_name || "-";
-    var school = data.school || "-";
-    var nisn = data.nisn || "-";
-    var type = data.type || "Masuk";
-    var officeName = data.office_name || "Kantor";
-    var distance = data.distance !== undefined ? Math.round(data.distance) : 0;
-    var activity = data.activity || "-";
-    var imageB64 = data.image_base64 || "";
-    var filename = data.filename || ("selfie_" + date + "_" + time.replace(/:/g, "") + ".jpg");
+    var rawDate = (data.date === undefined || data.date === null) ? "" : String(data.date);
+    var rawTime = (data.time === undefined || data.time === null) ? "" : String(data.time);
+    var rawFullName = (data.full_name === undefined || data.full_name === null) ? "" : String(data.full_name);
+    var rawType = (data.type === undefined || data.type === null) ? "" : String(data.type);
+
+    if (!verifyWebhookAuth(data, rawDate, rawTime, rawFullName, rawType)) {
+      return jsonResponse({ status: "error", message: "Unauthorized" });
+    }
+
+    var date = rawDate || Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM-dd");
+    var time = rawTime || Utilities.formatDate(new Date(), "Asia/Jakarta", "HH:mm:ss");
+    var fullName = rawFullName || "-";
+    var school = (data.school === undefined || data.school === null || String(data.school) === "") ? "-" : String(data.school);
+    var nisn = (data.nisn === undefined || data.nisn === null || String(data.nisn) === "") ? "-" : String(data.nisn);
+    var type = rawType || "Masuk";
+    var officeName = (data.office_name === undefined || data.office_name === null || String(data.office_name) === "") ? "Kantor" : String(data.office_name);
+    var distance = (data.distance !== undefined && data.distance !== null && isFinite(Number(data.distance))) ? Math.round(Number(data.distance)) : 0;
+    var activity = (data.activity === undefined || data.activity === null || String(data.activity) === "") ? "-" : String(data.activity);
+    var imageB64 = (data.image_base64 === undefined || data.image_base64 === null) ? "" : String(data.image_base64);
+    var rawFilename = data.filename || ("selfie_" + date + "_" + time.replace(/:/g, "") + ".jpg");
+    var filename = sanitizeFilename(rawFilename);
 
     var fileUrl = "-";
 
-    // 1. Simpan Foto Selfie ke Google Drive
+    // 1. Simpan Foto Selfie ke Google Drive (Privat, tanpa ANYONE_WITH_LINK)
     if (imageB64) {
       var folderName = "Foto Absensi Siswa";
       var folders = DriveApp.getFoldersByName(folderName);
-      var folder;
-      if (folders.hasNext()) {
-        folder = folders.next();
-      } else {
-        folder = DriveApp.createFolder(folderName);
-      }
+      var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
 
       var decoded = Utilities.base64Decode(imageB64);
       var blob = Utilities.newBlob(decoded, "image/jpeg", filename);
       var file = folder.createFile(blob);
 
-      // Beri izin link agar foto bisa dibuka oleh pembimbing/admin
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
       fileUrl = file.getUrl();
     }
 
@@ -84,7 +178,6 @@ function doPost(e) {
         "Link Foto Drive"
       ]);
 
-      // Styling Header (Warna Biru, Teks Putih, Tebal)
       var headerRange = sheet.getRange(1, 1, 1, 10);
       headerRange.setFontWeight("bold");
       headerRange.setBackground("#2563eb");
@@ -93,24 +186,27 @@ function doPost(e) {
       sheet.setFrozenRows(1);
     }
 
-    // Format Link Foto
-    var photoCell = fileUrl !== "-" ? '=HYPERLINK("' + fileUrl + '", "📸 Lihat Foto")' : "-";
+    // Validasi URL Drive sebelum membentuk HYPERLINK
+    var photoCell = "-";
+    if (fileUrl.indexOf("https://drive.google.com/") === 0) {
+      var safeUrl = fileUrl.replace(/"/g, "");
+      photoCell = '=HYPERLINK("' + safeUrl + '", "📸 Lihat Foto")';
+    }
 
-    // Tambah baris baru
+    // Tambah baris baru dengan proteksi formula injection
     sheet.appendRow([
-      date,
-      time,
-      fullName,
-      school,
-      nisn,
-      type,
-      officeName,
+      sanitizeCell(date),
+      sanitizeCell(time),
+      sanitizeCell(fullName),
+      sanitizeCell(school),
+      sanitizeCell(nisn),
+      sanitizeCell(type),
+      sanitizeCell(officeName),
       distance,
-      activity,
+      sanitizeCell(activity),
       photoCell
     ]);
 
-    // Rata tengah beberapa kolom agar rapi
     var lastRow = sheet.getLastRow();
     sheet.getRange(lastRow, 1).setHorizontalAlignment("center"); // Tanggal
     sheet.getRange(lastRow, 2).setHorizontalAlignment("center"); // Waktu
@@ -120,16 +216,17 @@ function doPost(e) {
     sheet.getRange(lastRow, 9).setHorizontalAlignment("left");   // Laporan Kegiatan
     sheet.getRange(lastRow, 10).setHorizontalAlignment("center"); // Link Foto
 
-    return ContentService.createTextOutput(JSON.stringify({
+    return jsonResponse({
       status: "success",
       message: "Data absensi dan foto berhasil disimpan ke Google Sheets & Drive",
       file_url: fileUrl
-    })).setMimeType(ContentService.MimeType.JSON);
+    });
 
   } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({
+    console.error("doPost internal error:", error);
+    return jsonResponse({
       status: "error",
-      message: error.toString()
-    })).setMimeType(ContentService.MimeType.JSON);
+      message: "Internal processing error"
+    });
   }
 }
